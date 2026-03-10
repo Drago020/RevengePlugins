@@ -1,4 +1,4 @@
-import { findByName } from "@vendetta/metro";
+import { findByName, findByProps } from "@vendetta/metro";
 import { ReactNative as RN } from "@vendetta/metro/common";
 import { before, instead } from "@vendetta/patcher";
 import { getAssetByID, getAssetIDByName } from "@vendetta/ui/assets";
@@ -14,6 +14,9 @@ import { fixPath } from "../stuff/util";
 import type { BunnyAsset, IconpackConfig } from "../types";
 
 const Status = findByName("Status", false);
+
+// FIX: Find Image component via props instead of relying on RN.Image directly
+const ImageModule = findByProps("Image")?.Image ?? RN.Image;
 
 export default function patchIcons(
 	plus: PlusStructure,
@@ -40,18 +43,23 @@ export default function patchIcons(
 		}
 		if (iconpack) state.patches.push(PatchType.Iconpack);
 
-		// FIXME the great component functionification of 2025
+		// FIX: Patch the render/default function of ImageModule
+		// instead of patching RN.Image directly (broken in RN 0.81+)
+		const targetObj = ImageModule?.render
+			? { render: ImageModule.render }
+			: ImageModule;
+		const targetMethod = ImageModule?.render ? "render" : "default";
+
 		patches.push(
-			instead("Image", RN, (_args, orig) => {
+			instead(targetMethod, targetObj, (_args, orig) => {
 				const args = _args.slice();
 				const [props] = args;
 
-				if (props.ignore) return orig(...args);
+				if (!props || props.ignore) return orig(...args);
 				const { source } = props;
 
 				let asset: BunnyAsset | null = null;
 
-				// theme mod icons (bunny, revenge)
 				const modIcon = Object.entries(modIcons).find(
 					([_, { raw }]) => source?.uri === raw,
 				);
@@ -63,8 +71,7 @@ export default function patchIcons(
 						name: modIcon[0],
 						type: "png",
 					};
-				} // custom themhed icons API
-				else if (
+				} else if (
 					source
 					&& typeof source.uri === "string"
 					&& typeof source.width === "number"
@@ -84,8 +91,7 @@ export default function patchIcons(
 						name: base.reverse().join("."),
 						type: ext,
 					};
-				} // any other asset
-				else if (typeof source === "number") {
+				} else if (typeof source === "number") {
 					asset = getAssetByID(source) as any;
 				}
 
@@ -123,9 +129,7 @@ export default function patchIcons(
 					if (tint) {
 						props.style = [
 							props.style,
-							{
-								tintColor: tint,
-							},
+							{ tintColor: tint },
 						];
 					}
 				}
@@ -133,9 +137,7 @@ export default function patchIcons(
 				if (useIconpack) {
 					props.source = {
 						uri: iconpack.load + assetIconpackLocation,
-						headers: {
-							"cache-contorl": "public, max-age=3600",
-						},
+						headers: { "cache-contorl": "public, max-age=3600" },
 						width: asset.width,
 						height: asset.height,
 						original: props.source,
@@ -155,4 +157,4 @@ export default function patchIcons(
 			}),
 		);
 	}
-}
+			}
